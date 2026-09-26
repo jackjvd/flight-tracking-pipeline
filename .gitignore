@@ -1,1 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
 
+# Docker
+docker-compose.override.yml
+
+# Airflow
+logs/
+airflow.db
+airflow-webserver.pid
+
+# dbt
+dbt_packages/
+target/
+logs/
+
+# OS/editor
+.DS_Store
+.vscode/
+.idea/
