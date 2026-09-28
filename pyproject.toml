@@ -1,0 +1,10 @@
+[project]
+name = "flight-tracking-pipeline"
+version = "0.1.0"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra --strict-markers"
+markers = ["integration: needs Postgres (docker compose up -d warehouse)"]

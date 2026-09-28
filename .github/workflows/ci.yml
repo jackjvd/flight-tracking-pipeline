@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: flights
+          POSTGRES_PASSWORD: flights
+          POSTGRES_DB: flights
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U flights -d flights"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_WAREHOUSE_URL: postgresql://flights:flights@localhost:5432/flights
+      REQUIRE_DB: "1"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+      - name: Install dependencies
+        run: make setup
+      - name: Run tests
+        run: make test
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Validate docker-compose.yml
+        run: docker compose config --quiet
+      - name: Build the Airflow image
+        run: docker build .

@@ -1,0 +1,57 @@
+version: 2
+
+models:
+  - name: stg_flight_states
+    description: Cleaned aircraft positions, one row per aircraft per snapshot.
+    columns:
+      - name: state_id
+        description: Hash of icao24 and snapshot time.
+        data_tests: [unique, not_null]
+      - name: icao24
+        description: ICAO 24-bit transponder address (hex), identifies the aircraft.
+        data_tests: [not_null]
+      - name: callsign
+        description: Flight callsign with padding removed; null when not broadcast.
+      - name: snapshot_at
+        data_tests: [not_null]
+      - name: last_contact_at
+        data_tests: [not_null]
+      - name: latitude
+        data_tests:
+          - accepted_range:
+              arguments: {min_value: -90, max_value: 90}
+      - name: longitude
+        data_tests:
+          - accepted_range:
+              arguments: {min_value: -180, max_value: 180}
+      - name: velocity_mps
+        data_tests:
+          - accepted_range:
+              arguments: {min_value: 0}
+      - name: heading_deg
+        data_tests:
+          - accepted_range:
+              arguments: {min_value: 0, max_value: 360}
+      - name: on_ground
+        data_tests: [not_null]
+      - name: position_source
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["ADS-B", "ASTERIX", "MLAT", "FLARM"]
+
+unit_tests:
+  - name: stg_flight_states_cleans_and_dedupes
+    model: stg_flight_states
+    given:
+      - input: source('raw', 'flight_states')
+        rows:
+          - {icao24: "abc123", snapshot_time: 1727366400, callsign: "SWR1    ", last_contact: 1727366399, position_source: 0, loaded_at: "2024-09-26 16:00:00"}
+          # Same aircraft and snapshot loaded again later: this one wins.
+          - {icao24: "abc123", snapshot_time: 1727366400, callsign: "SWR1NEW ", last_contact: 1727366399, position_source: 2, loaded_at: "2024-09-26 16:05:00"}
+          - {icao24: "def456", snapshot_time: 1727366400, callsign: "   ", last_contact: 1727366390, position_source: 3, loaded_at: "2024-09-26 16:00:00"}
+    expect:
+      rows:
+        - {icao24: "abc123", callsign: "SWR1NEW", position_source: "MLAT", snapshot_at: "2024-09-26 16:00:00+00"}
+        - {icao24: "def456", callsign: null, position_source: "FLARM", snapshot_at: "2024-09-26 16:00:00+00"}

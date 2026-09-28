@@ -1,0 +1,24 @@
+name: flights
+version: "1.0.0"
+profile: flights
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+clean-targets: ["target", "logs"]
+
+flags:
+  send_anonymous_usage_stats: false
+
+vars:
+  # A gap longer than this between two sightings of an aircraft starts a new flight.
+  flight_gap_minutes: 20
+
+models:
+  flights:
+    staging:
+      +schema: staging
+      +materialized: view
+    marts:
+      +schema: marts
+      +materialized: table
