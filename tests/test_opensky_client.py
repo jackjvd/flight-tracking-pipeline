@@ -152,6 +152,19 @@ class TestRetries:
         make_client().get_states()
         assert sleeps == [42.0]
 
+    def test_fails_fast_when_retry_after_is_too_long(self, rsps, make_client, sleeps):
+        rsps.get(STATES_URL, status=429, headers={"X-Rate-Limit-Retry-After-Seconds": "30000"})
+        with pytest.raises(OpenSkyError, match="rate limited by OpenSky, retry allowed in 30000s"):
+            make_client().get_states()
+        assert sleeps == []
+        assert len(rsps.calls) == 1
+
+    def test_retry_after_at_limit_still_waits(self, rsps, make_client, sleeps, api_payload):
+        rsps.get(STATES_URL, status=429, headers={"X-Rate-Limit-Retry-After-Seconds": "60"})
+        rsps.get(STATES_URL, json=api_payload)
+        make_client(max_retry_wait=60).get_states()
+        assert sleeps == [60.0]
+
     def test_ignores_garbage_retry_after_header(self, rsps, make_client, sleeps, api_payload):
         rsps.get(STATES_URL, status=429, headers={"X-Rate-Limit-Retry-After-Seconds": "soon"})
         rsps.get(STATES_URL, json=api_payload)

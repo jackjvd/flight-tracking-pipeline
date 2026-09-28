@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import psycopg
+from psycopg.types.json import Jsonb
 from pydantic import ValidationError
 
 from extract.models import StateVector
@@ -44,7 +45,7 @@ COLUMNS = (
 )
 COLUMN_TYPES = (
     "int8", "text", "text", "text", "int8", "int8", "float8", "float8", "float8", "bool",
-    "float8", "float8", "float8", "int4[]", "float8", "text", "bool", "int2", "int2", "text",
+    "float8", "float8", "float8", "jsonb", "float8", "text", "bool", "int2", "int2", "text",
 )
 
 SCHEMA_SQL = """
@@ -64,7 +65,7 @@ CREATE TABLE IF NOT EXISTS raw.flight_states (
     velocity        double precision,
     true_track      double precision,
     vertical_rate   double precision,
-    sensors         integer[],
+    sensors         jsonb,           -- JSON array of receiver IDs
     geo_altitude    double precision,
     squawk          text,
     spi             boolean          NOT NULL,
@@ -125,6 +126,8 @@ def read_rows(path: Path, source_file: str) -> list[tuple]:
             except (ValueError, KeyError, TypeError, AttributeError, ValidationError) as exc:
                 raise LoadError(f"{source_file} line {line_no}: {exc}") from exc
             values = state.model_dump()
+            if values["sensors"] is not None:
+                values["sensors"] = Jsonb(values["sensors"])
             rows.append((snapshot_time, *(values[c] for c in COLUMNS[1:-1]), source_file))
     return rows
 

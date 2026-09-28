@@ -31,6 +31,7 @@ class OpenSkyClient:
         *,
         max_retries: int = 3,
         backoff: float = 1.0,
+        max_retry_wait: float = 120.0,
         timeout: float = 30.0,
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic,
@@ -39,6 +40,7 @@ class OpenSkyClient:
         self.session = session or requests.Session()
         self.max_retries = max_retries
         self.backoff = backoff
+        self.max_retry_wait = max_retry_wait
         self.timeout = timeout
         self._sleep = sleep
         self._clock = clock
@@ -100,6 +102,9 @@ class OpenSkyClient:
             retry_after = response.headers.get("X-Rate-Limit-Retry-After-Seconds")
             if retry_after and retry_after.isdigit():
                 delay = float(retry_after)
+                if delay > self.max_retry_wait:
+                    # Daily credits are used up; waiting hours would block the scheduler.
+                    raise OpenSkyError(f"rate limited by OpenSky, retry allowed in {int(delay)}s")
             log.warning("HTTP %s, retrying in %.1fs", response.status_code, delay)
         else:
             log.warning("Connection problem, retrying in %.1fs", delay)
