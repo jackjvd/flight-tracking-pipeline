@@ -51,6 +51,8 @@ def warehouse_url():
             if not exists:
                 conn.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(TEST_DB)))
     except psycopg.OperationalError as exc:
+        if os.environ.get("REQUIRE_DB"):  # set in CI so a missing database can't hide failures
+            pytest.fail(f"REQUIRE_DB is set but Postgres is not reachable: {exc}")
         pytest.skip(f"Postgres not reachable (run `docker compose up -d warehouse`): {exc}")
     return psycopg.conninfo.make_conninfo(admin_url, dbname=TEST_DB)
 
