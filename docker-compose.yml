@@ -1,7 +1,8 @@
 # Local development stack:
 #   warehouse   Postgres that holds the flight data (localhost:5432)
 #   airflow-db  Postgres for Airflow's own metadata
-#   airflow     Airflow in standalone mode, UI at http://localhost:8080
+#   airflow     Airflow in standalone mode, UI at http://localhost:8080. Runs the
+#               flight_tracking DAG (extract -> load -> dbt build) every 5 minutes.
 #
 # Start with: docker compose up -d --build
 
@@ -55,15 +56,26 @@ services:
       AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "true"
       AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET:-local-dev-only-change-me}
       AIRFLOW__API__SECRET_KEY: ${AIRFLOW_SECRET_KEY:-local-dev-only-change-me}
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "false"
       PYTHONPATH: /opt/airflow
       OUTPUT_DIR: /opt/airflow/data/raw
+      # Small default area (Switzerland) so anonymous OpenSky limits aren't exceeded.
+      OPENSKY_BBOX: ${OPENSKY_BBOX:-45.8,5.9,47.8,10.5}
+      # These override any localhost values in .env: inside Docker the host is "warehouse".
       WAREHOUSE_URL: postgresql://${WAREHOUSE_USER:-flights}:${WAREHOUSE_PASSWORD:-flights}@warehouse:5432/${WAREHOUSE_DB:-flights}
+      WAREHOUSE_HOST: warehouse
+      WAREHOUSE_PORT: "5432"
+      WAREHOUSE_USER: ${WAREHOUSE_USER:-flights}
+      WAREHOUSE_PASSWORD: ${WAREHOUSE_PASSWORD:-flights}
+      WAREHOUSE_DB: ${WAREHOUSE_DB:-flights}
+      DBT_SEND_ANONYMOUS_USAGE_STATS: "false"
     ports:
       - "8080:8080"
     volumes:
       - ./dags:/opt/airflow/dags
       - ./extract:/opt/airflow/extract
       - ./load:/opt/airflow/load
+      - ./dbt:/opt/airflow/dbt
       - ./data:/opt/airflow/data
     depends_on:
       warehouse:
