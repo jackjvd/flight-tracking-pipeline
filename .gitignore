@@ -23,3 +23,6 @@ logs/
 .DS_Store
 .vscode/
 .idea/
+
+# Data
+data/
