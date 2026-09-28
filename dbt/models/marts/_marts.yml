@@ -1,0 +1,130 @@
+version: 2
+
+models:
+  - name: fct_flights
+    description: >
+      One row per inferred flight. A new flight starts when an aircraft first
+      appears, reappears after more than `flight_gap_minutes`, or changes callsign.
+    columns:
+      - name: flight_id
+        data_tests: [unique, not_null]
+      - name: icao24
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_aircraft'), field: icao24}
+      - name: first_seen_at
+        data_tests: [not_null]
+      - name: last_seen_at
+        data_tests: [not_null]
+      - name: duration_seconds
+        data_tests:
+          - not_null
+          - accepted_range:
+              arguments: {min_value: 0}
+      - name: observations
+        data_tests:
+          - accepted_range:
+              arguments: {min_value: 1}
+      - name: is_ongoing
+        data_tests: [not_null]
+
+  - name: dim_aircraft
+    description: One row per aircraft ever seen, with its latest known details.
+    columns:
+      - name: icao24
+        data_tests: [unique, not_null]
+      - name: origin_country
+        data_tests: [not_null]
+      - name: flights
+        data_tests:
+          - accepted_range:
+              arguments: {min_value: 1}
+      - name: observations
+        data_tests:
+          - accepted_range:
+              arguments: {min_value: 1}
+
+  - name: agg_hourly_traffic
+    description: Aircraft counts and averages per hour and country of registration.
+    data_tests:
+      - unique_combination:
+          arguments: {columns: [hour, origin_country]}
+    columns:
+      - name: hour
+        data_tests: [not_null]
+      - name: aircraft
+        data_tests:
+          - accepted_range:
+              arguments: {min_value: 1}
+      - name: airborne_aircraft
+        data_tests:
+          - accepted_range:
+              arguments: {min_value: 0}
+
+unit_tests:
+  - name: fct_flights_splits_on_gaps_and_callsign_changes
+    model: fct_flights
+    overrides:
+      vars: {flight_gap_minutes: 20}
+    given:
+      - input: ref('stg_flight_states')
+        rows:
+          # Aircraft A: two sightings 10 min apart (one flight), then a 30 min gap (new flight).
+          - {icao24: "aaaaaa", callsign: "SWR1", snapshot_at: "2024-09-26 10:00:00+00", on_ground: false, velocity_mps: 200}
+          - {icao24: "aaaaaa", callsign: "SWR1", snapshot_at: "2024-09-26 10:10:00+00", on_ground: false, velocity_mps: 220}
+          - {icao24: "aaaaaa", callsign: "SWR1", snapshot_at: "2024-09-26 10:40:00+00", on_ground: true, velocity_mps: 0}
+          # Aircraft B: callsign changes with no gap (new flight); a missing callsign does not split.
+          - {icao24: "bbbbbb", callsign: "DLH1", snapshot_at: "2024-09-26 10:00:00+00", on_ground: false, velocity_mps: 100}
+          - {icao24: "bbbbbb", callsign: null, snapshot_at: "2024-09-26 10:05:00+00", on_ground: false, velocity_mps: 100}
+          - {icao24: "bbbbbb", callsign: "DLH1", snapshot_at: "2024-09-26 10:10:00+00", on_ground: false, velocity_mps: 100}
+          - {icao24: "bbbbbb", callsign: "DLH2", snapshot_at: "2024-09-26 10:15:00+00", on_ground: false, velocity_mps: 100}
+    expect:
+      rows:
+        - {icao24: "aaaaaa", callsign: "SWR1", first_seen_at: "2024-09-26 10:00:00+00", last_seen_at: "2024-09-26 10:10:00+00", duration_seconds: 600, observations: 2, avg_airborne_velocity_mps: 210, seen_on_ground: false, is_ongoing: false}
+        - {icao24: "aaaaaa", callsign: "SWR1", first_seen_at: "2024-09-26 10:40:00+00", last_seen_at: "2024-09-26 10:40:00+00", duration_seconds: 0, observations: 1, avg_airborne_velocity_mps: null, seen_on_ground: true, is_ongoing: true}
+        - {icao24: "bbbbbb", callsign: "DLH1", first_seen_at: "2024-09-26 10:00:00+00", last_seen_at: "2024-09-26 10:10:00+00", duration_seconds: 600, observations: 3, avg_airborne_velocity_mps: 100, seen_on_ground: false, is_ongoing: false}
+        - {icao24: "bbbbbb", callsign: "DLH2", first_seen_at: "2024-09-26 10:15:00+00", last_seen_at: "2024-09-26 10:15:00+00", duration_seconds: 0, observations: 1, avg_airborne_velocity_mps: 100, seen_on_ground: false, is_ongoing: false}
+
+  - name: fct_flights_tracks_first_and_last_position
+    model: fct_flights
+    given:
+      - input: ref('stg_flight_states')
+        rows:
+          - {icao24: "cccccc", snapshot_at: "2024-09-26 10:00:00+00", latitude: 47.0, longitude: 8.0, on_ground: false}
+          - {icao24: "cccccc", snapshot_at: "2024-09-26 10:05:00+00", latitude: null, longitude: null, on_ground: false}
+          - {icao24: "cccccc", snapshot_at: "2024-09-26 10:10:00+00", latitude: 47.5, longitude: 8.5, on_ground: false}
+          - {icao24: "cccccc", snapshot_at: "2024-09-26 10:15:00+00", latitude: null, longitude: null, on_ground: false}
+    expect:
+      rows:
+        - {icao24: "cccccc", first_latitude: 47.0, first_longitude: 8.0, last_latitude: 47.5, last_longitude: 8.5, observations: 4, is_ongoing: true}
+
+  - name: agg_hourly_traffic_counts_distinct_aircraft
+    model: agg_hourly_traffic
+    given:
+      - input: ref('stg_flight_states')
+        rows:
+          - {icao24: "aaaaaa", origin_country: "Switzerland", snapshot_at: "2024-09-26 10:00:00+00", on_ground: false, baro_altitude_m: 1000}
+          - {icao24: "aaaaaa", origin_country: "Switzerland", snapshot_at: "2024-09-26 10:30:00+00", on_ground: false, baro_altitude_m: 3000}
+          - {icao24: "bbbbbb", origin_country: "Switzerland", snapshot_at: "2024-09-26 10:45:00+00", on_ground: true, baro_altitude_m: null}
+          - {icao24: "cccccc", origin_country: "Germany", snapshot_at: "2024-09-26 11:05:00+00", on_ground: false, baro_altitude_m: 9000}
+    expect:
+      rows:
+        - {hour: "2024-09-26 10:00:00+00", origin_country: "Switzerland", aircraft: 2, airborne_aircraft: 1, observations: 3, avg_airborne_altitude_m: 2000}
+        - {hour: "2024-09-26 11:00:00+00", origin_country: "Germany", aircraft: 1, airborne_aircraft: 1, observations: 1, avg_airborne_altitude_m: 9000}
+
+  - name: dim_aircraft_keeps_latest_known_callsign
+    model: dim_aircraft
+    given:
+      - input: ref('stg_flight_states')
+        rows:
+          - {icao24: "aaaaaa", origin_country: "Switzerland", callsign: "OLD1", snapshot_at: "2024-09-26 10:00:00+00"}
+          - {icao24: "aaaaaa", origin_country: "Switzerland", callsign: "NEW1", snapshot_at: "2024-09-26 11:00:00+00"}
+          - {icao24: "aaaaaa", origin_country: "Switzerland", callsign: null, snapshot_at: "2024-09-26 12:00:00+00"}
+      - input: ref('fct_flights')
+        rows:
+          - {icao24: "aaaaaa"}
+          - {icao24: "aaaaaa"}
+    expect:
+      rows:
+        - {icao24: "aaaaaa", latest_callsign: "NEW1", observations: 3, flights: 2, first_seen_at: "2024-09-26 10:00:00+00", last_seen_at: "2024-09-26 12:00:00+00"}
